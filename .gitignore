@@ -1,0 +1,5 @@
+/target/
+/.forge/
+
+*.pdb
+.DS_Store
