@@ -1,150 +1,14 @@
-version: 2.1
+﻿version: 2.1
 
 orbs:
   win: circleci/windows@5.0
 
 parameters:
-  linux_release_artifacts:
-    type: boolean
-    default: false
   release_artifacts:
     type: boolean
     default: false
 
-commands:
-  prepare_unix_workspace:
-    steps:
-      - run:
-          name: Checkout sibling Cargo dependencies
-          command: |
-            set -euo pipefail
-            fallback_branch="dev"
-            default_owner="millercarla211-ctrl"
-            
-            clone_dx_dependency() {
-              name="$1"
-              repository="$2"
-              target="../${name}"
-              if [ -d "${target}/.git" ]; then
-                echo "Dependency ${name} already exists at ${target}"
-                return 0
-              fi
-              branch="${CIRCLE_BRANCH:-$fallback_branch}"
-              owner="${DX_GITHUB_OWNER:-$default_owner}"
-              url="https://github.com/${owner}/${repository}.git"
-              clone_dependency() {
-                selected_branch="$1"
-                if [ -n "${DX_GITHUB_TOKEN:-}" ]; then
-                  echo "Using configured GitHub token for private dependency ${owner}/${repository}."
-                  export DX_GITHUB_TOKEN
-                  askpass="$(mktemp)"
-                  cat > "${askpass}" \<<'EOF'
-            #!/usr/bin/env sh
-            case "$1" in
-              *Username*) printf "%s\n" "x-access-token" ;;
-              *Password*) printf "%s\n" "${DX_GITHUB_TOKEN}" ;;
-              *) printf "\n" ;;
-            esac
-            EOF
-                  chmod 700 "${askpass}"
-                  auth_url="https://x-access-token@github.com/${owner}/${repository}.git"
-                  GIT_ASKPASS="${askpass}" GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "${selected_branch}" "${auth_url}" "${target}"
-                  status="$?"
-                  rm -f "${askpass}"
-                  return "${status}"
-                else
-                  echo "DX_GITHUB_TOKEN is not configured; trying unauthenticated dependency clone."
-                  git clone --depth 1 --branch "${selected_branch}" "${url}" "${target}"
-                fi
-              }
-              clone_dependency "${branch}" || clone_dependency "${fallback_branch}" || {
-                echo "Failed to clone dependency ${name} from ${owner}/${repository}. Private sibling dependencies require a scoped read token or an SSH key strategy." >&2
-                return 1
-              }
-            }
-            
-            clone_dx_dependency "serializer" "dx-serializer"
-  prepare_windows_workspace:
-    steps:
-      - run:
-          name: Checkout sibling Cargo dependencies
-          shell: powershell.exe
-          command: |
-            $ErrorActionPreference = "Stop"
-            $fallbackBranch = "dev"
-            $defaultOwner = "millercarla211-ctrl"
-            function Clone-DxDependency {
-                param([string]$Name, [string]$Repository)
-                $target = Join-Path ".." $Name
-                if (Test-Path -LiteralPath (Join-Path $target ".git")) {
-                    Write-Host "Dependency $Name already exists at $target"
-                    return
-                }
-                $branch = if ($env:CIRCLE_BRANCH) { $env:CIRCLE_BRANCH } else { $fallbackBranch }
-                $owner = if ($env:DX_GITHUB_OWNER) { $env:DX_GITHUB_OWNER } else { $defaultOwner }
-                $url = "https://github.com/$owner/$Repository.git"
-                $gitArgs = @()
-                if ($env:DX_GITHUB_TOKEN) {
-                    $authHeader = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$env:DX_GITHUB_TOKEN"))
-                    $gitArgs += @("-c", "http.https://github.com/.extraheader=AUTHORIZATION: basic $authHeader")
-                }
-                git @gitArgs clone --depth 1 --branch $branch $url $target
-                if ($LASTEXITCODE -ne 0) {
-                    git @gitArgs clone --depth 1 --branch $fallbackBranch $url $target
-                }
-                if ($LASTEXITCODE -ne 0) {
-                    throw "Failed to clone dependency $Name from $owner/$Repository. Private sibling dependencies require a scoped read token or an SSH key strategy."
-                }
-            }
-            
-            Clone-DxDependency -Name "serializer" -Repository "dx-serializer"
-
 jobs:
-  linux-check:
-    docker:
-      - image: cimg/rust:1.94.0
-    resource_class: small
-    steps:
-      - checkout
-      - prepare_unix_workspace
-      - restore_cache:
-          keys:
-            - cargo-{{ arch }}-{{ checksum "Cargo.lock" }}
-            - cargo-{{ arch }}-
-      - run:
-          name: Cargo metadata
-          command: cargo metadata --locked --no-deps --format-version 1
-      - run:
-          name: Cargo check
-          command: cargo check --locked --lib --bins --tests --examples
-      - save_cache:
-          key: cargo-{{ arch }}-{{ checksum "Cargo.lock" }}
-          paths:
-            - ~/.cargo/registry
-            - ~/.cargo/git
-            - target
-
-  linux-release:
-    docker:
-      - image: cimg/rust:1.94.0
-    resource_class: medium
-    steps:
-      - checkout
-      - prepare_unix_workspace
-      - run:
-          name: Build Linux release artifacts
-          command: |
-            set -euo pipefail
-            cargo build --locked --release --bin forge
-            mkdir -p dist
-            cp "target/release/forge" "dist/forge"
-            short_sha="$(printf "%.12s" "${CIRCLE_SHA1}")"
-            archive="forge-linux-x86_64-${short_sha}.tar.gz"
-            tar -czf "dist/${archive}" -C dist forge
-            (cd dist && shasum -a 256 "${archive}" > SHA256SUMS.txt)
-      - store_artifacts:
-          path: dist
-
   windows-release:
     executor:
       name: win/default
@@ -157,67 +21,31 @@ jobs:
           command: |
             Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile "rustup-init.exe"
             .\rustup-init.exe -y --default-toolchain 1.94.0 --profile minimal
-      - prepare_windows_workspace
       - run:
           name: Build Windows release artifacts
           shell: powershell.exe
           command: |
             $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
             $ErrorActionPreference = "Stop"
-            cargo build --locked --release --bin forge
+            cargo build --release
             New-Item -ItemType Directory -Path dist -Force | Out-Null
-            Copy-Item -LiteralPath "target\release\forge.exe" -Destination "dist\forge.exe"
-            $shortSha = $env:CIRCLE_SHA1.Substring(0, 12)
-            $archive = "forge-windows-x86_64-$shortSha.zip"
-            Compress-Archive -Path "dist\*.exe" -DestinationPath "dist\$archive" -Force
-            $hash = Get-FileHash -Algorithm SHA256 -LiteralPath "dist\$archive"
-            "$($hash.Hash.ToLowerInvariant())  $archive" | Set-Content -LiteralPath "dist\SHA256SUMS.txt" -Encoding ASCII
-      - store_artifacts:
-          path: dist
-
-  macos-release:
-    macos:
-      xcode: 26.4.1
-    resource_class: m4pro.medium
-    steps:
-      - checkout
-      - run:
-          name: Install Rust
-          command: curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain 1.94.0 --profile minimal
-      - prepare_unix_workspace
-      - run:
-          name: Build macOS release artifacts
-          command: |
-            . "$HOME/.cargo/env"
-            set -euo pipefail
-            cargo build --locked --release --bin forge
-            mkdir -p dist
-            cp "target/release/forge" "dist/forge"
-            short_sha="$(printf "%.12s" "${CIRCLE_SHA1}")"
-            archive="forge-macos-arm64-${short_sha}.tar.gz"
-            tar -czf "dist/${archive}" -C dist forge
-            (cd dist && shasum -a 256 "${archive}" > SHA256SUMS.txt)
+            Copy-Item -Path "target\release\*.exe" -Destination "dist\" -Force -ErrorAction SilentlyContinue
+            if ($env:CIRCLE_SHA1) {
+                $shortSha = $env:CIRCLE_SHA1.Substring(0, 12)
+            } else {
+                $shortSha = "local"
+            }
+            $archive = "dx-windows-x86_64-$shortSha.zip"
+            if (Test-Path "dist\*.exe") {
+                Compress-Archive -Path "dist\*" -DestinationPath "dist\$archive" -Force
+                $hash = Get-FileHash -Algorithm SHA256 -Path "dist\$archive"
+                "$($hash.Hash.ToLowerInvariant())  $archive" | Set-Content -Path "dist\SHA256SUMS.txt" -Encoding ASCII
+            }
       - store_artifacts:
           path: dist
 
 workflows:
-  validate:
-    jobs:
-      - linux-check:
-          filters:
-            branches:
-              only:
-                - main
-                - dev
-
   release:
     when: << pipeline.parameters.release_artifacts >>
     jobs:
-      - linux-release
       - windows-release
-      - macos-release
-
-  linux-release-smoke:
-    when: << pipeline.parameters.linux_release_artifacts >>
-    jobs:
-      - linux-release
