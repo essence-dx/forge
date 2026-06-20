@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use forge::cli;
+use dx_forge::cli;
 use mimalloc::MiMalloc;
 use tracing_subscriber::EnvFilter;
 
