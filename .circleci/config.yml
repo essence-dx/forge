@@ -22,23 +22,26 @@ jobs:
             Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile "rustup-init.exe"
             .\rustup-init.exe -y --default-toolchain 1.94.0 --profile minimal
       - run:
+          name: Clone local path dependencies
+          shell: powershell.exe
+          command: |
+            $env:CIRCLECI_GH_TOKEN = [System.Environment]::GetEnvironmentVariable("CIRCLECI_GH_TOKEN")
+            git config --global url."https://x-access-token:$env:CIRCLECI_GH_TOKEN@github.com/".insteadOf "https://github.com/"
+            git config --global url."https://x-access-token:$env:CIRCLECI_GH_TOKEN@github.com/".insteadOf "ssh://git@github.com/"
+            git clone https://github.com/millercarla211-ctrl/serializer ..\serializer
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+      - run:
           name: Build Windows release artifacts
           shell: powershell.exe
           command: |
             $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
-            $ErrorActionPreference = "Stop"
-            $env:CIRCLECI_GH_TOKEN = [System.Environment]::GetEnvironmentVariable("CIRCLECI_GH_TOKEN")
-            git config --global url."https://x-access-token:$env:CIRCLECI_GH_TOKEN@github.com/".insteadOf "https://github.com/"
-            git config --global url."https://x-access-token:$env:CIRCLECI_GH_TOKEN@github.com/".insteadOf "ssh://git@github.com/"
             $env:CARGO_NET_GIT_FETCH_WITH_CLI = "true"
             cargo build --release
+            if ($LASTEXITCODE -ne 0) { exit 1 }
             New-Item -ItemType Directory -Path dist -Force | Out-Null
-            
-            # Binary is named dx-forge.exe
             if (Test-Path "target\release\dx-forge.exe") {
                 Copy-Item -Path "target\release\dx-forge.exe" -Destination "dist\dx-forge.exe" -Force
             }
-
             if ($env:CIRCLE_SHA1) {
                 $shortSha = $env:CIRCLE_SHA1.Substring(0, 12)
             } else {
@@ -49,6 +52,8 @@ jobs:
                 Compress-Archive -Path "dist\*" -DestinationPath "dist\$archive" -Force
                 $hash = Get-FileHash -Algorithm SHA256 -Path "dist\$archive"
                 "$($hash.Hash.ToLowerInvariant())  $archive" | Set-Content -Path "dist\SHA256SUMS.txt" -Encoding ASCII
+            } else {
+                Write-Error "Build succeeded but no dx-forge.exe found in target\release"; exit 1
             }
       - store_artifacts:
           path: dist
@@ -61,7 +66,12 @@ jobs:
             $env:GH_TOKEN = [System.Environment]::GetEnvironmentVariable("CIRCLECI_GH_TOKEN")
             $tag = "windows"
             gh release create $tag --repo $env:CIRCLE_PROJECT_USERNAME/$env:CIRCLE_PROJECT_REPONAME --title "Windows Release" --target $env:CIRCLE_SHA1 2>$null; $LASTEXITCODE = 0
-            gh release upload $tag dist\*.zip --repo $env:CIRCLE_PROJECT_USERNAME/$env:CIRCLE_PROJECT_REPONAME --clobber
+            $zipFiles = Get-ChildItem dist\*.zip -ErrorAction SilentlyContinue
+            if (-not $zipFiles) { Write-Error "No zip artifacts found in dist\"; exit 1 }
+            foreach ($zip in $zipFiles) {
+                gh release upload $tag $zip.FullName --repo $env:CIRCLE_PROJECT_USERNAME/$env:CIRCLE_PROJECT_REPONAME --clobber
+                if ($LASTEXITCODE -ne 0) { exit 1 }
+            }
 
 workflows:
   release:
