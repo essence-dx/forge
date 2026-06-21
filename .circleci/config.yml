@@ -56,9 +56,7 @@ jobs:
           name: Upload artifact to GitHub release
           shell: powershell.exe
           command: |
-            
             choco install gh -y --no-progress --limit-output
-            
             refreshenv
             $env:GH_TOKEN = [System.Environment]::GetEnvironmentVariable("CIRCLECI_GH_TOKEN")
             $tag = "windows"
@@ -70,6 +68,7 @@ workflows:
     when: << pipeline.parameters.release_artifacts >>
     jobs:
       - windows-release
+
 
 
 
