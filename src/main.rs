@@ -233,6 +233,13 @@ fn main() -> Result<()> {
     let args = Args::parse();
     init_tracing(args.verbose);
 
+    let dx = dx_forge::dx_config::ForgeDxConfig::load();
+    tracing::info!(workspace_root = %dx.workspace_root.display(), "dx config loaded");
+
+    // Ensure serializer output directory exists
+    std::fs::create_dir_all(&dx.sr_dir).ok();
+    std::fs::create_dir_all(&dx.receipts_dir).ok();
+
     if let Some(repo_dir) = &args.repo_dir {
         std::env::set_current_dir(repo_dir)?;
     }

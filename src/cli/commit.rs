@@ -55,6 +55,8 @@ pub fn run(message: &str) -> Result<()> {
         .or_else(|_| std::env::var("USER"))
         .unwrap_or_else(|_| "unknown".to_string());
 
+    let author_sr = author.clone();
+
     let timestamp_ns = Utc::now()
         .timestamp_nanos_opt()
         .unwrap_or_else(|| Utc::now().timestamp() * 1_000_000_000);
@@ -93,6 +95,26 @@ pub fn run(message: &str) -> Result<()> {
         commit.files.len(),
         message
     );
+
+    // Write .sr for serializer daemon to compile to .machine
+    let dx = crate::dx_config::ForgeDxConfig::load();
+    let sr_path = dx.sr_path("forge-commit");
+    let _ = dx_config::write_sr_file(&sr_path, &[
+        ("action", "commit"),
+        ("commit_id", &id_hex),
+        ("files_count", &commit.files.len().to_string()),
+        ("message", message),
+        ("author", &author_sr),
+        ("timestamp_ns", &timestamp_ns.to_string()),
+    ]);
+
+    // Attempt fast .machine readback to verify the pipeline
+    if let Some(status) = dx.read_status("forge-commit") {
+        tracing::debug!(
+            "forge-commit machine cache verified: {} entries",
+            status.len()
+        );
+    }
 
     Ok(())
 }

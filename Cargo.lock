@@ -596,6 +596,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
+name = "dx-config"
+version = "0.1.0"
+dependencies = [
+ "dx-serializer",
+ "serde",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
 name = "dx-forge"
 version = "0.1.0"
 dependencies = [
@@ -610,6 +620,7 @@ dependencies = [
  "clap",
  "criterion",
  "crossbeam-channel",
+ "dx-config",
  "dx-serializer",
  "fastcdc",
  "futures",

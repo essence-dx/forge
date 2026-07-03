@@ -1,3 +1,4 @@
+pub mod dx_config;
 pub mod chunking;
 pub mod cli;
 pub mod core;
