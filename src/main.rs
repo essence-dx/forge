@@ -239,6 +239,14 @@ fn main() -> Result<()> {
     // Ensure serializer output directory exists
     std::fs::create_dir_all(&dx.sr_dir).ok();
     std::fs::create_dir_all(&dx.receipts_dir).ok();
+    std::fs::create_dir_all(dx.global_sr_dir()).ok();
+
+    dx.write_global_sr("forge", &[
+        ("action", "startup"),
+        ("version", env!("CARGO_PKG_VERSION")),
+        ("pid", &std::process::id().to_string()),
+        ("status", "running"),
+    ]);
 
     if let Some(repo_dir) = &args.repo_dir {
         std::env::set_current_dir(repo_dir)?;

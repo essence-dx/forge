@@ -7,6 +7,7 @@ pub struct ForgeDxConfig {
     pub cache_dir: PathBuf,
     pub sr_dir: PathBuf,
     pub receipts_dir: PathBuf,
+    pub global_cache_dir: PathBuf,
 }
 
 impl ForgeDxConfig {
@@ -26,6 +27,7 @@ impl ForgeDxConfig {
             cache_dir: cache,
             sr_dir: sr,
             receipts_dir: receipts,
+            global_cache_dir: config.global_cache_dir().to_path_buf(),
         }
     }
 
@@ -46,5 +48,15 @@ impl ForgeDxConfig {
 
     pub fn receipt_path(&self, name: &str) -> PathBuf {
         self.receipts_dir.join(name)
+    }
+
+    pub fn global_sr_dir(&self) -> PathBuf {
+        self.global_cache_dir.join("forge")
+    }
+
+    pub fn write_global_sr(&self, name: &str, entries: &[(&str, &str)]) {
+        let dir = self.global_sr_dir();
+        let path = dir.join(format!("{}.sr", name));
+        let _ = dx_config::write_sr_file(&path, entries);
     }
 }
